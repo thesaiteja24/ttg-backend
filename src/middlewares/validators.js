@@ -90,3 +90,62 @@ export const validateEditFaculty = [
     .isLength({ min: 10 })
     .withMessage("Phone number must be 10 digits"),
 ];
+
+export const validateCreateCourse = [
+  body("courseId")
+    .isString()
+    .withMessage("Course ID must be a string")
+    .trim()
+    .notEmpty()
+    .withMessage("Course ID cannot be empty"),
+  body("courseName")
+    .isString()
+    .withMessage("Course name must be a string")
+    .trim()
+    .notEmpty()
+    .withMessage("Course name cannot be empty"),
+  body("courseShortName")
+    .isString()
+    .withMessage("Short name must be a string")
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage("Short name must be at least 2 characters"),
+  body("credits")
+    .isNumeric()
+    .withMessage("Credits must be numeric")
+    .isInt({ min: 0, max: 3 })
+    .withMessage("Credits must be between 0 and 3"),
+  body("isLab").isBoolean().withMessage("isLab must be a boolean value"),
+];
+
+export const validateEditCourse = [
+  body("id")
+    .notEmpty()
+    .withMessage("Course ID is required")
+    .isString()
+    .withMessage("Course ID must be a string"),
+  body("courseId")
+    .isString()
+    .withMessage("Course ID must be a string")
+    .trim()
+    .notEmpty()
+    .withMessage("Course ID cannot be empty"),
+  body("courseName")
+    .isString()
+    .withMessage("Course name must be a string")
+    .trim()
+    .notEmpty()
+    .withMessage("Course name cannot be empty"),
+  body("courseShortName")
+    .isString()
+    .withMessage("Short name must be a string")
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage("Short name must be at least 2 characters"),
+  body("credits")
+    .isNumeric()
+    .withMessage("Credits must be numeric")
+    .isInt({ min: 0, max: 3 })
+    .withMessage("Credits must be between 0 and 3"),
+  body("isLab").isBoolean().withMessage("isLab must be a boolean value"),
+];
