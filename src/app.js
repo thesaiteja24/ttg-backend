@@ -18,8 +18,13 @@ app.use(cookieParser());
 
 //routes import
 import { indexRoutes } from "./routes/index.routes.js";
+import { ApiError } from "./utils/apiError.js";
+import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 //routes declaration
-app.use("/api", indexRoutes);
+app.use("/api/v1", indexRoutes);
+
+// Global error-handling middleware
+app.use(globalErrorHandler);
 
 export { app };

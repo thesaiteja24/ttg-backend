@@ -1,13 +1,10 @@
 import { Router } from "express";
 import { healthCheckRoutes } from "./healthcheck.routes.js";
+import { userRoutes } from "./user.routes.js";
 
 const router = Router();
 
-// mount sub-routers
 router.use("/health", healthCheckRoutes);
+router.use("/user", userRoutes);
 
-// you can add more here, e.g.:
-// router.use("/users", usersRouter);
-// router.use("/courses", coursesRouter);
-
-export const  indexRoutes = router;
+export const indexRoutes = router;

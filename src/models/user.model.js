@@ -1,9 +1,14 @@
 import mongoose, { Schema } from "mongoose";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { v4 as uuidv4 } from "uuid";
 
 const userSchema = new Schema(
   {
+    _id: {
+      type: String,
+      default: uuidv4,
+    },
     name: {
       type: String,
       required: true,
@@ -49,7 +54,7 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-userSchema.methods.isPasswordCorrect = async function (password) {
+userSchema.methods.validatePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
 
@@ -66,6 +71,7 @@ userSchema.methods.generateAccessToken = function () {
     }
   );
 };
+
 userSchema.methods.generateRefreshToken = function () {
   return jwt.sign(
     {
