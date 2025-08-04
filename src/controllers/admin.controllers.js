@@ -58,3 +58,64 @@ export const createFaculty = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, newFaculty, "Faculty created successfully"));
 });
 
+export const editFaculty = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+
+  if (!errors.isEmpty()) {
+    throw new ApiError(
+      400,
+      "Validation failed",
+      errors.array().map((err) => err.msg)
+    );
+  }
+
+  const { facultyId, name, countryCode, phone } = req.body;
+
+  const faculty = await User.findById(facultyId);
+
+  if (!faculty || faculty.role !== "faculty") {
+    throw new ApiError(404, "Faculty does not exists");
+  }
+
+  const existingPhone = await User.findOne({
+    phone,
+    _id: { $ne: facultyId },
+  });
+
+  if (existingPhone) {
+    throw new ApiError(409, "Phone number already in use by another faculty");
+  }
+
+  const newEmail = generateEmailFromPhone(phone);
+
+  const existingEmail = await User.findOne({
+    email: newEmail,
+    _id: { $ne: facultyId },
+  });
+
+  if (existingEmail) {
+    throw new ApiError(
+      409,
+      "Generated email already in use by another faculty"
+    );
+  }
+
+  faculty.name = name;
+  faculty.phone = phone;
+  faculty.email = newEmail;
+  faculty.countryCode = countryCode;
+
+  await faculty.save({ validateBeforeSave: false });
+
+  const updatedFaculty = await User.findById(faculty._id);
+
+  if (!updatedFaculty) {
+    throw new ApiError(500, "Somenthing went wrong when updating faculty");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, updatedFaculty, "Faculty data updated successfully")
+    );
+});
