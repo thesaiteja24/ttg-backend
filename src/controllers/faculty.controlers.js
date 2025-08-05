@@ -69,9 +69,9 @@ export const editFaculty = asyncHandler(async (req, res) => {
     );
   }
 
-  const { facultyId, name, countryCode, phone } = req.body;
+  const { id, name, countryCode, phone } = req.body;
 
-  const faculty = await User.findById(facultyId);
+  const faculty = await User.findById(id);
 
   if (!faculty || faculty.role !== "faculty") {
     throw new ApiError(404, "Faculty does not exists");
@@ -79,7 +79,7 @@ export const editFaculty = asyncHandler(async (req, res) => {
 
   const existingPhone = await User.findOne({
     phone,
-    _id: { $ne: facultyId },
+    _id: { $ne: id },
   });
 
   if (existingPhone) {
@@ -90,7 +90,7 @@ export const editFaculty = asyncHandler(async (req, res) => {
 
   const existingEmail = await User.findOne({
     email: newEmail,
-    _id: { $ne: facultyId },
+    _id: { $ne: id },
   });
 
   if (existingEmail) {

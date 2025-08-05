@@ -70,7 +70,7 @@ export const validateCreateFaculty = [
 ];
 
 export const validateEditFaculty = [
-  body("facultyId").notEmpty().withMessage("Faculty Id is required"),
+  body("id").notEmpty().withMessage("Faculty id is required"),
   body("name")
     .notEmpty()
     .withMessage("Name is required")
@@ -121,15 +121,15 @@ export const validateCreateCourse = [
 export const validateEditCourse = [
   body("id")
     .notEmpty()
-    .withMessage("Course ID is required")
+    .withMessage("Course id is required")
     .isString()
-    .withMessage("Course ID must be a string"),
+    .withMessage("Course id must be a string"),
   body("courseId")
     .isString()
-    .withMessage("Course ID must be a string")
+    .withMessage("CourseID must be a string")
     .trim()
     .notEmpty()
-    .withMessage("Course ID cannot be empty"),
+    .withMessage("CourseID cannot be empty"),
   body("courseName")
     .isString()
     .withMessage("Course name must be a string")
@@ -148,4 +148,71 @@ export const validateEditCourse = [
     .isInt({ min: 0, max: 3 })
     .withMessage("Credits must be between 0 and 3"),
   body("isLab").isBoolean().withMessage("isLab must be a boolean value"),
+];
+
+export const validateCreateClass = [
+  body("section")
+    .notEmpty()
+    .withMessage("Section is required")
+    .isString()
+    .withMessage("Section Should be a string"),
+  body("year")
+    .notEmpty()
+    .withMessage("Year is requried")
+    .isLength({ min: 1, max: 4 })
+    .withMessage("Year should be between 1 to 4")
+    .isNumeric()
+    .withMessage("Year should be numeric"),
+  body("semester")
+    .notEmpty()
+    .withMessage("Semester is required")
+    .isNumeric()
+    .withMessage("Semester should be numberic")
+    .isLength({ min: 1, max: 2 })
+    .withMessage("Semester should be between 1 to 2"),
+  body("branch")
+    .notEmpty()
+    .withMessage("Branch is required")
+    .isString()
+    .withMessage("Branch name must be string"),
+];
+
+export const validateEditClass = [
+  body("id")
+    .notEmpty()
+    .withMessage("Class id is required")
+    .isString()
+    .withMessage("Class id must be a string"),
+  body("section")
+    .notEmpty()
+    .withMessage("Section is required")
+    .isString()
+    .withMessage("Section Should be a string"),
+  body("year")
+    .notEmpty()
+    .withMessage("Year is requried")
+    .isLength({ min: 1, max: 4 })
+    .withMessage("Year should be between 1 to 4")
+    .isNumeric()
+    .withMessage("Year should be numeric"),
+  body("semester")
+    .notEmpty()
+    .withMessage("Semester is required")
+    .isNumeric()
+    .withMessage("Semester should be numberic")
+    .isLength({ min: 1, max: 2 })
+    .withMessage("Semester should be between 1 to 2"),
+  body("branch")
+    .notEmpty()
+    .withMessage("Branch is required")
+    .isString()
+    .withMessage("Branch name must be string"),
+];
+
+export const validateDelete = [
+  body("id")
+    .notEmpty()
+    .withMessage("id is required")
+    .isString()
+    .withMessage("id must be a string"),
 ];

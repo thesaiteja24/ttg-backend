@@ -17,7 +17,7 @@ const classSchema = new Schema(
       min: 1,
       max: 4,
     },
-    semster: {
+    semester: {
       type: Number,
       required: true,
       min: 1,
