@@ -150,69 +150,60 @@ export const validateEditCourse = [
   body("isLab").isBoolean().withMessage("isLab must be a boolean value"),
 ];
 
-export const validateCreateClass = [
-  body("section")
-    .notEmpty()
-    .withMessage("Section is required")
-    .isString()
-    .withMessage("Section Should be a string"),
-  body("year")
-    .notEmpty()
-    .withMessage("Year is requried")
-    .isLength({ min: 1, max: 4 })
-    .withMessage("Year should be between 1 to 4")
-    .isNumeric()
-    .withMessage("Year should be numeric"),
-  body("semester")
-    .notEmpty()
-    .withMessage("Semester is required")
-    .isNumeric()
-    .withMessage("Semester should be numberic")
-    .isLength({ min: 1, max: 2 })
-    .withMessage("Semester should be between 1 to 2"),
-  body("branch")
-    .notEmpty()
-    .withMessage("Branch is required")
-    .isString()
-    .withMessage("Branch name must be string"),
-];
-
-export const validateEditClass = [
-  body("id")
-    .notEmpty()
-    .withMessage("Class id is required")
-    .isString()
-    .withMessage("Class id must be a string"),
-  body("section")
-    .notEmpty()
-    .withMessage("Section is required")
-    .isString()
-    .withMessage("Section Should be a string"),
-  body("year")
-    .notEmpty()
-    .withMessage("Year is requried")
-    .isLength({ min: 1, max: 4 })
-    .withMessage("Year should be between 1 to 4")
-    .isNumeric()
-    .withMessage("Year should be numeric"),
-  body("semester")
-    .notEmpty()
-    .withMessage("Semester is required")
-    .isNumeric()
-    .withMessage("Semester should be numberic")
-    .isLength({ min: 1, max: 2 })
-    .withMessage("Semester should be between 1 to 2"),
-  body("branch")
-    .notEmpty()
-    .withMessage("Branch is required")
-    .isString()
-    .withMessage("Branch name must be string"),
-];
-
 export const validateDelete = [
   body("id")
     .notEmpty()
     .withMessage("id is required")
     .isString()
     .withMessage("id must be a string"),
+];
+
+export const validateCreateYearSemester = [
+  body("year")
+    .trim()
+    .isInt({ min: 1, max: 4 })
+    .withMessage("Year must be between 1 and 4"),
+  body("semester")
+    .trim()
+    .isInt({ min: 1, max: 2 })
+    .withMessage("Semester must be 1 or 2"),
+  body("branch")
+    .trim()
+    .customSanitizer((value) => value.toUpperCase())
+    .matches(/^[A-Z-]+$/) // 👈 Only uppercase letters and hyphen
+    .withMessage(
+      "Branch must contain only uppercase letters (A–Z) and hyphens (-)"
+    ),
+  body("sections")
+    .trim()
+    .isArray({ min: 1 })
+    .withMessage("Sections must be a non-empty array"),
+];
+
+export const validateEditYearSemester = [
+  body("id")
+    .trim()
+    .notEmpty()
+    .withMessage("YearSemester id is required")
+    .isString()
+    .withMessage("YearSemester id must be a string"),
+  body("year")
+    .trim()
+    .isInt({ min: 1, max: 4 })
+    .withMessage("Year must be between 1 and 4"),
+  body("semester")
+    .trim()
+    .isInt({ min: 1, max: 2 })
+    .withMessage("Semester must be 1 or 2"),
+  body("branch")
+    .trim()
+    .customSanitizer((value) => value.toUpperCase())
+    .matches(/^[A-Z-]+$/) // 👈 Only uppercase letters and hyphen
+    .withMessage(
+      "Branch must contain only uppercase letters (A–Z) and hyphens (-)"
+    ),
+  body("sections")
+    .trim()
+    .isArray({ min: 1 })
+    .withMessage("Sections must be a non-empty array"),
 ];
