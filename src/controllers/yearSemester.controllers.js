@@ -247,10 +247,17 @@ export const deleteYearSemester = asyncHandler(async (req, res) => {
 });
 
 export const getYearSemesters = asyncHandler(async (req, res) => {
-  const yearSemesters = await YearSemester.find()
-    .populate("classes", "section status")
+  const { isDropdown = false } = req.query;
+
+  let query = YearSemester.find()
     .sort({ year: 1, semester: 1, branch: 1 })
     .select("-createdAt -updatedAt -__v");
+
+  if (!isDropdown) {
+    query = query.populate("classes", "section status");
+  }
+
+  const yearSemesters = await query;
 
   if (yearSemesters.length === 0) {
     throw new ApiError(404, "No year-semesters exist");
