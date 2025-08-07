@@ -3,10 +3,12 @@ import { ApiError } from "../utils/apiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { validationResult } from "express-validator";
 import { Course } from "../models/course.model.js";
+import { YearSemester } from "../models/yearSemester.model.js";
+import mongoose from "mongoose";
 
 export const createCourse = asyncHandler(async (req, res) => {
+  // Validate request body
   const errors = validationResult(req);
-
   if (!errors.isEmpty()) {
     throw new ApiError(
       400,
@@ -15,27 +17,73 @@ export const createCourse = asyncHandler(async (req, res) => {
     );
   }
 
-  const { courseId, courseName, courseShortName, credits, isLab } = req.body;
-
-  const existingCourse = await Course.findOne({ courseId });
-
-  if (existingCourse) {
-    throw new ApiError(409, "A course with the course ID already exists");
-  }
-
-  const course = await Course.create({
+  const {
+    yearSemesterId,
     courseId,
     courseName,
     courseShortName,
     credits,
     isLab,
-  });
+  } = req.body;
 
-  const createdCourse = await Course.findById(course._id);
-
-  if (!createdCourse) {
-    throw new ApiError(500, "Somenthing went wrong while creating the course");
+  // Check for missing yearSemesterId
+  if (!yearSemesterId) {
+    throw new ApiError(400, "yearSemesterId is required");
   }
+
+  // Start a transaction
+  const session = await mongoose.startSession();
+  req.session = session; // Attach session to req for global error handler
+  session.startTransaction();
+
+  // Validate yearSemesterId exists
+  const existingYearSemester = await YearSemester.findById(
+    yearSemesterId,
+    {},
+    { session }
+  );
+  if (!existingYearSemester) {
+    throw new ApiError(404, "Selected Year and Semester does not exist");
+  }
+
+  // Check for duplicate courseId
+  const existingCourse = await Course.findOne({ courseId }, {}, { session });
+  if (existingCourse) {
+    throw new ApiError(409, "A course with this course ID already exists");
+  }
+
+  // Create course
+  const [course] = await Course.create(
+    [
+      {
+        yearSemesterId,
+        courseId,
+        courseName,
+        courseShortName,
+        credits,
+        isLab,
+      },
+    ],
+    { session }
+  );
+
+  // Fetch created course with populated yearSemesterId
+  const createdCourse = await Course.findById(course._id)
+    .populate("yearSemesterId", "year semester branch")
+    .session(session);
+
+  // Verify course and population
+  if (!createdCourse || !createdCourse.yearSemesterId) {
+    throw new ApiError(
+      500,
+      "Failed to create course: Invalid or missing yearSemesterId reference"
+    );
+  }
+
+  // Commit the transaction
+  await session.commitTransaction();
+  await session.endSession();
+  req.session = null; // Clear session from req
 
   return res
     .status(201)
@@ -43,8 +91,8 @@ export const createCourse = asyncHandler(async (req, res) => {
 });
 
 export const editCourse = asyncHandler(async (req, res) => {
+  // Validate request body
   const errors = validationResult(req);
-
   if (!errors.isEmpty()) {
     throw new ApiError(
       400,
@@ -53,36 +101,81 @@ export const editCourse = asyncHandler(async (req, res) => {
     );
   }
 
-  const { id, courseId, courseName, courseShortName, credits, isLab } =
-    req.body;
+  const {
+    id,
+    yearSemesterId,
+    courseId,
+    courseName,
+    courseShortName,
+    credits,
+    isLab,
+  } = req.body;
 
-  const course = await Course.findById(id);
+  // Start a transaction
+  const session = await mongoose.startSession();
+  req.session = session; // Attach session to req
+  session.startTransaction();
 
+  // Check for course existence
+  const course = await Course.findById(id, {}, { session });
   if (!course) {
     throw new ApiError(404, "Course does not exist");
   }
 
-  const existingCourseId = await Course.findOne({ courseId, _id: { $ne: id } });
-
-  if (existingCourseId) {
-    throw new ApiError(409, "Course with course ID already exists");
+  // Validate yearSemesterId if provided
+  if (yearSemesterId) {
+    const existingYearSemester = await YearSemester.findById(
+      yearSemesterId,
+      {},
+      { session }
+    );
+    if (!existingYearSemester) {
+      throw new ApiError(404, "Selected Year and Semester does not exist");
+    }
   }
 
-  course.courseId = courseId;
-  course.courseName = courseName;
-  course.courseShortName = courseShortName;
-  course.credits = credits;
-  course.isLab = isLab;
-
-  await course.save({ validateBeforeSave: false });
-
-  const newCourse = await Course.findById(course._id);
-
-  if (!newCourse) {
-    throw new ApiError(500, "Somenthing went wrong when updating course");
+  // Check for duplicate courseId
+  if (courseId) {
+    const existingCourseId = await Course.findOne(
+      { courseId, _id: { $ne: id } },
+      {},
+      { session }
+    );
+    if (existingCourseId) {
+      throw new ApiError(409, "Course with this course ID already exists");
+    }
   }
+
+  // Build update fields dynamically
+  const updateFields = {};
+  if (yearSemesterId) updateFields.yearSemesterId = yearSemesterId;
+  if (courseId) updateFields.courseId = courseId;
+  if (courseName) updateFields.courseName = courseName;
+  if (courseShortName) updateFields.courseShortName = courseShortName;
+  if (credits !== undefined) updateFields.credits = credits;
+  if (isLab !== undefined) updateFields.isLab = isLab;
+
+  // Update course
+  const updatedCourse = await Course.findByIdAndUpdate(
+    id,
+    { $set: updateFields },
+    { new: true, runValidators: true, session }
+  ).populate("yearSemesterId", "year semester branch sections");
+
+  // Verify update and population
+  if (!updatedCourse || (yearSemesterId && !updatedCourse.yearSemesterId)) {
+    throw new ApiError(
+      500,
+      "Failed to update course: Invalid or missing yearSemesterId reference"
+    );
+  }
+
+  // Commit the transaction
+  await session.commitTransaction();
+  await session.endSession();
+  req.session = null; // Clear session from req
 
   return res
     .status(200)
-    .json(new ApiResponse(200, req.body, "Course updated successfully"));
+    .json(new ApiResponse(200, updatedCourse, "Course updated successfully"));
 });

@@ -1,6 +1,19 @@
 import { ApiError } from "../utils/apiError.js";
+import mongoose from "mongoose";
 
-export const globalErrorHandler = (err, req, res, next) => {
+export const globalErrorHandler = async (err, req, res, next) => {
+  // Check for active transaction session and abort if present
+  if (req.session && req.session.inTransaction()) {
+    try {
+      await req.session.abortTransaction();
+      console.error("Transaction aborted");
+    } catch (abortError) {
+      console.error("Failed to abort transaction:", abortError.stack);
+    } finally {
+      await req.session.endSession();
+    }
+  }
+
   if (err instanceof ApiError) {
     res.status(err.statusCode).json({
       success: err.success,

@@ -12,6 +12,11 @@ const courseSchema = new Schema(
       unique: true,
       trim: true,
     },
+    yearSemesterId: {
+      type: String,
+      required: true,
+      ref: "YearSemester",
+    },
     courseName: {
       type: String,
       required: true,

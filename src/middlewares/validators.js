@@ -92,6 +92,11 @@ export const validateEditFaculty = [
 ];
 
 export const validateCreateCourse = [
+  body("yearSemesterId")
+    .isString()
+    .withMessage("year semester ID must be a string")
+    .notEmpty()
+    .withMessage("year semester ID must be a string"),
   body("courseId")
     .isString()
     .withMessage("Course ID must be a string")
