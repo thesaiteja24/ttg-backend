@@ -34,6 +34,7 @@ export const createCourse = asyncHandler(async (req, res) => {
   // Start a transaction
   const session = await mongoose.startSession();
   req.session = session; // Attach session to req for global error handler
+  
   session.startTransaction();
 
   // Validate yearSemesterId exists
@@ -178,4 +179,25 @@ export const editCourse = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, updatedCourse, "Course updated successfully"));
+});
+
+export const getCourse = asyncHandler(async (req, res) => {
+  const { yearSemesterId = null } = req.query;
+  let filter = {};
+
+  if (yearSemesterId !== null) {
+    filter.yearSemesterId = yearSemesterId;
+  }
+
+  const courses = await Course.find(filter)
+    .populate("yearSemesterId", "year semester branch sections")
+    .select("-createdAt -updatedAt -__v")
+    .sort({ courseId: 1 });
+
+  if (courses.length === 0) {
+    throw new ApiError(404, "Courses does not exist");
+  }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, courses, "Courses fetched successfully"));
 });

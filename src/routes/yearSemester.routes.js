@@ -3,6 +3,7 @@ import {
   createYearSemester,
   deleteYearSemester,
   editYearSemester,
+  getClasses,
   getYearSemesters,
 } from "../controllers/yearSemester.controllers.js";
 import {
@@ -17,5 +18,6 @@ router.route("/").post(validateCreateYearSemester, createYearSemester);
 router.route("/").put(validateEditYearSemester, editYearSemester);
 router.route("/").delete(validateDelete, deleteYearSemester);
 router.route("/").get(getYearSemesters);
+router.route("/classes").get(getClasses);
 
 export const yearSemesterRoutes = router;

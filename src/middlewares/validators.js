@@ -212,3 +212,23 @@ export const validateEditYearSemester = [
     .isArray({ min: 1 })
     .withMessage("Sections must be a non-empty array"),
 ];
+
+// Assignment Validators
+export const validateCreateAssignment = [
+  body("courseId")
+    .notEmpty()
+    .withMessage("courseId is required")
+    .isUUID()
+    .withMessage("Invalid courseId"),
+  body("facultyId")
+    .notEmpty()
+    .withMessage("facultyId is required")
+    .isUUID()
+    .withMessage("Invalid facultyId"),
+
+  body("classId")
+    .notEmpty()
+    .withMessage("classId is required")
+    .isUUID()
+    .withMessage("Invalid classId"),
+];

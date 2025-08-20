@@ -269,3 +269,15 @@ export const getYearSemesters = asyncHandler(async (req, res) => {
       new ApiResponse(200, yearSemesters, "Year-semesters fetched successfully")
     );
 });
+
+export const getClasses = asyncHandler(async (req, res) => {
+  const classes = await Class.find();
+
+  if (classes.length === 0) {
+    throw new ApiError(404, "Classes does not exist");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, classes, "Classes fetched successfully"));
+});
