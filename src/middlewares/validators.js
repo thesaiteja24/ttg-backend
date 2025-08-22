@@ -1,4 +1,4 @@
-import { body } from "express-validator";
+import { body, param } from "express-validator";
 
 export const validateRegister = [
   body("name")
@@ -156,7 +156,7 @@ export const validateEditCourse = [
 ];
 
 export const validateDelete = [
-  body("id")
+  param("id")
     .notEmpty()
     .withMessage("id is required")
     .isString()

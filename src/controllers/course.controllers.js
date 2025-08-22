@@ -34,7 +34,7 @@ export const createCourse = asyncHandler(async (req, res) => {
   // Start a transaction
   const session = await mongoose.startSession();
   req.session = session; // Attach session to req for global error handler
-  
+
   session.startTransaction();
 
   // Validate yearSemesterId exists
@@ -200,4 +200,31 @@ export const getCourse = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, courses, "Courses fetched successfully"));
+});
+
+export const deleteCourse = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Start a transaction
+  const session = await mongoose.startSession();
+  req.session = session; // Attach session to req
+  session.startTransaction();
+
+  // Check for course existence
+  const course = await Course.findById(id, {}, { session });
+  if (!course) {
+    throw new ApiError(404, "Course does not exist");
+  }
+
+  // Delete course
+  await Course.findByIdAndDelete(id, { session });
+
+  // Commit the transaction
+  await session.commitTransaction();
+  await session.endSession();
+  req.session = null; // Clear session from req
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "Course deleted successfully"));
 });

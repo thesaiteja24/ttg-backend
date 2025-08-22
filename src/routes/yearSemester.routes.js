@@ -16,7 +16,7 @@ const router = Router();
 
 router.route("/").post(validateCreateYearSemester, createYearSemester);
 router.route("/").put(validateEditYearSemester, editYearSemester);
-router.route("/").delete(validateDelete, deleteYearSemester);
+router.route("/:id").delete(validateDelete, deleteYearSemester);
 router.route("/").get(getYearSemesters);
 router.route("/classes").get(getClasses);
 

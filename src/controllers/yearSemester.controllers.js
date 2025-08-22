@@ -195,7 +195,7 @@ export const deleteYearSemester = asyncHandler(async (req, res) => {
     );
   }
 
-  const { id } = req.body;
+  const { id } = req.params;
 
   const yearSemester = await YearSemester.findById(id);
   if (!yearSemester) {
