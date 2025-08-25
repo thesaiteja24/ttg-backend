@@ -15,6 +15,19 @@ const generatePassword = async () => {
   return await bcrypt.hash(password, 12);
 };
 
+export const getFaculty = asyncHandler(async (req, res) => {
+  const users = await User.find({ role: "faculty" })
+    .select("-email -password -createdAt -updatedAt -__v")
+    .sort({ name: 1 });
+
+  if (users.length === 0) {
+    throw new ApiError(404, "Faculty does not exist");
+  }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, users, "Faculty fetched successfully"));
+});
+
 export const createFaculty = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -131,18 +144,7 @@ export const editFaculty = asyncHandler(async (req, res) => {
     );
 });
 
-export const getFaculty = asyncHandler(async (req, res) => {
-  const users = await User.find({ role: "faculty" })
-    .select("-email -password -createdAt -updatedAt -__v")
-    .sort({ name: 1 });
 
-  if (users.length === 0) {
-    throw new ApiError(404, "Faculty does not exist");
-  }
-  return res
-    .status(200)
-    .json(new ApiResponse(200, users, "Faculty fetched successfully"));
-});
 
 export const deleteFaculty = asyncHandler(async (req, res) => {
   const { id } = req.params;

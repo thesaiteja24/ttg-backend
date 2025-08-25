@@ -8,6 +8,42 @@ import { Class } from "../models/class.model.js";
 import { Assignment } from "../models/assignment.model.js";
 import { Timetable } from "../models/timetable.model.js";
 
+export const getYearSemesters = asyncHandler(async (req, res) => {
+  const { isDropdown = false } = req.query;
+
+  let query = YearSemester.find()
+    .sort({ year: 1, semester: 1, branch: 1 })
+    .select("-createdAt -updatedAt -__v");
+
+  if (!isDropdown) {
+    query = query.populate("classes", "section status");
+  }
+
+  const yearSemesters = await query;
+
+  if (yearSemesters.length === 0) {
+    throw new ApiError(404, "No year-semesters exist");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, yearSemesters, "Year-semesters fetched successfully")
+    );
+});
+
+export const getClasses = asyncHandler(async (req, res) => {
+  const classes = await Class.find();
+
+  if (classes.length === 0) {
+    throw new ApiError(404, "Classes does not exist");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, classes, "Classes fetched successfully"));
+});
+
 export const createYearSemester = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -244,40 +280,4 @@ export const deleteYearSemester = asyncHandler(async (req, res) => {
   } finally {
     await session.endSession();
   }
-});
-
-export const getYearSemesters = asyncHandler(async (req, res) => {
-  const { isDropdown = false } = req.query;
-
-  let query = YearSemester.find()
-    .sort({ year: 1, semester: 1, branch: 1 })
-    .select("-createdAt -updatedAt -__v");
-
-  if (!isDropdown) {
-    query = query.populate("classes", "section status");
-  }
-
-  const yearSemesters = await query;
-
-  if (yearSemesters.length === 0) {
-    throw new ApiError(404, "No year-semesters exist");
-  }
-
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(200, yearSemesters, "Year-semesters fetched successfully")
-    );
-});
-
-export const getClasses = asyncHandler(async (req, res) => {
-  const classes = await Class.find();
-
-  if (classes.length === 0) {
-    throw new ApiError(404, "Classes does not exist");
-  }
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, classes, "Classes fetched successfully"));
 });

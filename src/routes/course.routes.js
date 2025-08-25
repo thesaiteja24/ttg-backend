@@ -13,9 +13,9 @@ import {
 
 const router = Router();
 
+router.route("/").get(getCourse);
 router.route("/").post(validateCreateCourse, createCourse);
 router.route("/").put(validateEditCourse, editCourse);
-router.route("/").get(getCourse);
 router.route("/:id").delete(validateDelete, deleteCourse);
 
 export const courseRoutes = router;

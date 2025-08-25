@@ -108,3 +108,75 @@ export const createAssignment = asyncHandler(async (req, res) => {
       new ApiResponse(201, createdAssignment, "Assignment created successfully")
     );
 });
+
+export const getAssignment = asyncHandler(async (req, res) => {
+  const { yearSemesterId = null } = req.query;
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: "courses",
+        localField: "courseId",
+        foreignField: "_id",
+        as: "course",
+        pipeline: [
+          { $project: { _id: 1, courseName: 1, yearSemesterId: 1 } },
+          {
+            $lookup: {
+              from: "yearsemesters",
+              localField: "yearSemesterId",
+              foreignField: "_id",
+              as: "yearSemester",
+              pipeline: [{ $project: { _id: 1, year: 1, semester: 1 } }],
+            },
+          },
+          { $unwind: "$yearSemester" },
+          { $unset: ["yearSemesterId"] }
+        ],
+      },
+    },
+    { $unwind: "$course" },
+
+    // conditionally push the $match stage only if yearSemesterId exists
+    ...(yearSemesterId
+      ? [{ $match: { "course.yearSemesterId": yearSemesterId } }]
+      : []),
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "facultyId",
+        foreignField: "_id",
+        as: "faculty",
+        pipeline: [{ $project: { _id: 1, name: 1, email: 1 } }],
+      },
+    },
+    { $unwind: "$faculty" },
+    {
+      $lookup: {
+        from: "classes",
+        localField: "classId",
+        foreignField: "_id",
+        as: "class",
+        pipeline: [{ $project: { _id: 1, section: 1, yearSemesterId: 1 } }],
+      },
+    },
+    { $unwind: "$class" },
+    { $unset: ["courseId", "facultyId", "classId", "__v"] },
+  ];
+
+  const assignments = await Assignment.aggregate(pipeline);
+
+  if (!assignments || assignments.length === 0) {
+    throw new ApiError(
+      404,
+      "No assignments found for the specified year-semester"
+    );
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, assignments, "Assignments retrieved successfully")
+    );
+});
