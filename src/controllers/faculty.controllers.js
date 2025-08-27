@@ -142,9 +142,7 @@ export const editFaculty = asyncHandler(async (req, res) => {
     .json(
       new ApiResponse(200, updatedFaculty, "Faculty data updated successfully")
     );
-});
-
-
+}); 
 
 export const deleteFaculty = asyncHandler(async (req, res) => {
   const { id } = req.params;

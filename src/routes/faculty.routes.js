@@ -4,7 +4,7 @@ import {
   deleteFaculty,
   editFaculty,
   getFaculty,
-} from "../controllers/faculty.controlers.js";
+} from "../controllers/faculty.controllers.js";
 import {
   validateCreateFaculty,
   validateDelete,

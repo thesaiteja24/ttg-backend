@@ -8,6 +8,83 @@ import { User } from "../models/user.model.js";
 import { Class } from "../models/class.model.js";
 import { Assignment } from "../models/assignment.model.js";
 
+export const getAssignment = asyncHandler(async (req, res) => {
+  const { yearSemesterId = null } = req.query;
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: "courses",
+        localField: "courseId",
+        foreignField: "_id",
+        as: "course",
+        pipeline: [
+          { $project: { _id: 1, courseName: 1, yearSemesterId: 1 } },
+          {
+            $lookup: {
+              from: "yearsemesters",
+              localField: "yearSemesterId",
+              foreignField: "_id",
+              as: "yearSemester",
+              pipeline: [{ $project: { _id: 1, year: 1, semester: 1 } }],
+            },
+          },
+          { $unwind: "$yearSemester" },
+          { $unset: ["yearSemesterId"] },
+        ],
+      },
+    },
+    { $unwind: "$course" },
+
+    // conditionally push the $match stage only if yearSemesterId exists
+    ...(yearSemesterId
+      ? [{ $match: { "course.yearSemester._id": yearSemesterId } }]
+      : []),
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "facultyId",
+        foreignField: "_id",
+        as: "faculty",
+        pipeline: [{ $project: { _id: 1, name: 1, email: 1 } }],
+      },
+    },
+    { $unwind: "$faculty" },
+    {
+      $lookup: {
+        from: "classes",
+        localField: "classId",
+        foreignField: "_id",
+        as: "class",
+        pipeline: [{ $project: { _id: 1, section: 1, yearSemesterId: 1 } }],
+      },
+    },
+    { $unwind: "$class" },
+    { $unset: ["courseId", "facultyId", "classId", "__v"] },
+  ];
+
+  const assignments = await Assignment.aggregate(pipeline).sort({
+    "course.yearSemester.year": 1,
+    "course.yearSemester.semester": 1,
+    "class.section": 1,
+    "course.courseName": 1,
+  });
+
+  if (!assignments || assignments.length === 0) {
+    throw new ApiError(
+      404,
+      "No assignments found for the specified year-semester"
+    );
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, assignments, "Assignments retrieved successfully")
+    );
+});
+
 export const createAssignment = asyncHandler(async (req, res) => {
   // Validate request body
   const errors = validationResult(req);
@@ -109,74 +186,119 @@ export const createAssignment = asyncHandler(async (req, res) => {
     );
 });
 
-export const getAssignment = asyncHandler(async (req, res) => {
-  const { yearSemesterId = null } = req.query;
-
-  const pipeline = [
-    {
-      $lookup: {
-        from: "courses",
-        localField: "courseId",
-        foreignField: "_id",
-        as: "course",
-        pipeline: [
-          { $project: { _id: 1, courseName: 1, yearSemesterId: 1 } },
-          {
-            $lookup: {
-              from: "yearsemesters",
-              localField: "yearSemesterId",
-              foreignField: "_id",
-              as: "yearSemester",
-              pipeline: [{ $project: { _id: 1, year: 1, semester: 1 } }],
-            },
-          },
-          { $unwind: "$yearSemester" },
-          { $unset: ["yearSemesterId"] }
-        ],
-      },
-    },
-    { $unwind: "$course" },
-
-    // conditionally push the $match stage only if yearSemesterId exists
-    ...(yearSemesterId
-      ? [{ $match: { "course.yearSemesterId": yearSemesterId } }]
-      : []),
-
-    {
-      $lookup: {
-        from: "users",
-        localField: "facultyId",
-        foreignField: "_id",
-        as: "faculty",
-        pipeline: [{ $project: { _id: 1, name: 1, email: 1 } }],
-      },
-    },
-    { $unwind: "$faculty" },
-    {
-      $lookup: {
-        from: "classes",
-        localField: "classId",
-        foreignField: "_id",
-        as: "class",
-        pipeline: [{ $project: { _id: 1, section: 1, yearSemesterId: 1 } }],
-      },
-    },
-    { $unwind: "$class" },
-    { $unset: ["courseId", "facultyId", "classId", "__v"] },
-  ];
-
-  const assignments = await Assignment.aggregate(pipeline);
-
-  if (!assignments || assignments.length === 0) {
+export const editAssignment = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
     throw new ApiError(
-      404,
-      "No assignments found for the specified year-semester"
+      400,
+      "Validation Error",
+      errors.array().map((err) => err?.msg)
     );
   }
+
+  const { id } = req.params;
+  const { courseId, facultyId, classId } = req.body;
+
+  const session = await mongoose.startSession();
+  req.session = session; // Attach session for global error handler
+  session.startTransaction();
+
+  // Validate course exists
+  const course = await Course.findById(courseId, {}, { session });
+  if (!course) {
+    throw new ApiError(404, "The selected course does not exist");
+  }
+
+  // Validate faculty exists and is a faculty member
+  const faculty = await User.findById(facultyId, {}, { session });
+  if (!faculty || faculty.role !== "faculty") {
+    throw new ApiError(
+      404,
+      "The selected faculty does not exist or is not a faculty member"
+    );
+  }
+
+  // Validate class exists
+  const classData = await Class.findById(classId, {}, { session });
+  if (!classData) {
+    throw new ApiError(404, "The selected class does not exist");
+  }
+
+  // Validate course and class compatibility
+  if (course.yearSemesterId !== classData.yearSemesterId) {
+    throw new ApiError(
+      400,
+      "The selected course is not meant for the selected class's year-semester"
+    );
+  }
+
+  // Check for existing assignment
+  const existingAssignment = await Assignment.findOne(
+    { courseId, classId, _id: { $ne: id } },
+    {},
+    { session }
+  ).populate("facultyId");
+
+  if (existingAssignment) {
+    throw new ApiError(
+      409,
+      `The course ${course.courseName} for class ${classData.section} is already assigned to faculty ${existingAssignment.facultyId.name}`
+    );
+  }
+
+  const updatedAssignment = await Assignment.findByIdAndUpdate(
+    id,
+    { courseId, facultyId, classId },
+    { new: true, session }
+  );
+
+  if (!updatedAssignment) {
+    throw new ApiError(
+      500,
+      "Something went wrong when updating the assignment"
+    );
+  }
+
+  await session.commitTransaction();
+  await session.endSession();
+  req.session = null;
 
   return res
     .status(200)
     .json(
-      new ApiResponse(200, assignments, "Assignments retrieved successfully")
+      new ApiResponse(200, updatedAssignment, "Assignment updated successfully")
     );
+});
+
+export const deleteAssignment = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError(
+      400,
+      "Validation Error",
+      errors.array().map((err) => err?.msg)
+    );
+  }
+
+  const { id } = req.params;
+  console.log(id);
+
+  const session = await mongoose.startSession();
+  req.session = session; // Attach session for global error handler
+  session.startTransaction();
+
+  const deletedAssignment = await Assignment.findByIdAndDelete(id, { session });
+
+  if (!deletedAssignment) {
+    throw new ApiError(404, "Assignment not found");
+  }
+
+  // Commit the transaction
+  await session.commitTransaction();
+  await session.endSession();
+  req.session = null; // Clear session
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "Assignment deleted successfully"));
 });
