@@ -20,10 +20,15 @@ const facultyAvailablitySchema = new Schema(
     isAvailable: {
       type: Boolean,
       required: true,
-      default: tur,
+      default: true,
     },
   },
   {
     timestamps: true,
   }
+);
+
+export const FacultyAvailability = mongoose.model(
+  "FacultyAvailability",
+  facultyAvailablitySchema
 );

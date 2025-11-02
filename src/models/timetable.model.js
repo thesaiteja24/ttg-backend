@@ -15,7 +15,7 @@ const timetableSchema = new Schema(
     courseId: {
       type: String,
       ref: "Course",
-      require: true,
+      required: true,
     },
     facultyId: {
       type: String,
@@ -24,7 +24,7 @@ const timetableSchema = new Schema(
     },
     timeslotId: {
       type: String,
-      ref: "User",
+      ref: "Timeslot",
       required: true,
     },
     room: {

@@ -1,23 +1,22 @@
-import mongoose from "mongoose";
+import mongoose, { Schema } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
 
 const timeslotSchema = new Schema(
   {
     _id: {
-      String,
+      type: String,
       default: uuidv4,
     },
     day: {
       type: String,
-      requried: true,
+      required: true,
       enum: [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
       ],
       trim: true,
     },
@@ -33,4 +32,6 @@ const timeslotSchema = new Schema(
   }
 );
 
-export const TimeSlot = mongoose.model("TimeSlot", timeslotSchema);
+timeslotSchema.index({ day: 1, period: 1 }, { unique: true });
+
+export const Timeslot = mongoose.model("Timeslot", timeslotSchema);

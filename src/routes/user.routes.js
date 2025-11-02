@@ -4,6 +4,7 @@ import { validateLogin, validateRegister } from "../middlewares/validators.js";
 
 const router = Router();
 
+// TODO: Implement forgot password and reset password
 router.route("/register").post(validateRegister, registerUser);
 router.route("/login").post(validateLogin, loginUser);
 
