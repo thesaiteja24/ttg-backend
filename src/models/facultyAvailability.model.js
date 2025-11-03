@@ -28,6 +28,8 @@ const facultyAvailablitySchema = new Schema(
   }
 );
 
+facultyAvailablitySchema.index({ facultyId: 1, timeslotId: 1 }, { unique: true });
+
 export const FacultyAvailability = mongoose.model(
   "FacultyAvailability",
   facultyAvailablitySchema
