@@ -291,8 +291,6 @@ export const facultyAvailability = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Faculty does not exist");
   }
 
-  console.log(faculty);
-
   const schedule = await FacultyAvailability.aggregate([
     { $match: { facultyId: faculty._id } },
     {
@@ -347,12 +345,38 @@ export const facultyAvailability = asyncHandler(async (req, res) => {
     },
   ]);
 
-
   if (schedule.length === 0) {
     throw new ApiError(404, "Schedule does not exist for that faculty");
   }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, schedule, "Schedule fetched successfully"));
+  const sorted = schedule[0].facultyAvailability;
+
+  const days = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const matrix = Array.from({ length: 6 }, () => Array(6).fill(null));
+
+  sorted.forEach((slot) => {
+    const dayIndex = days.indexOf(slot.day);
+    const periodIndex = slot.period - 1;
+    matrix[periodIndex][dayIndex] = slot;
+  });
+
+  console.log(matrix);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        facultyId: faculty._id,
+        matrix,
+      },
+      "Schedule fetched successfully"
+    )
+  );
 });
