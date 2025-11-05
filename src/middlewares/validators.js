@@ -232,3 +232,11 @@ export const validateCreateAssignment = [
     .isUUID()
     .withMessage("Invalid classId"),
 ];
+
+export const validateCreateTimetable = [
+  body("yearSemesterId")
+    .notEmpty()
+    .withMessage("yearSemesterId is required")
+    .isUUID()
+    .withMessage("Invalid yearSemesterId"),
+];

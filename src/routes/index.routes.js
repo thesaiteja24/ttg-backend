@@ -6,6 +6,7 @@ import { courseRoutes } from "./course.routes.js";
 import { yearSemesterRoutes } from "./yearSemester.routes.js";
 import { assignmentRoutes } from "./assignment.routes.js";
 import { timeslotRoutes } from "./timeslot.routes.js";
+import { timetableRoutes } from "./timetable.routes.js";
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use("/course", courseRoutes);
 router.use("/year-semester", yearSemesterRoutes);
 router.use("/assignment", assignmentRoutes);
 router.use("/timeslot", timeslotRoutes);
+router.use("/timetable", timetableRoutes)
 
 export const indexRoutes = router;
