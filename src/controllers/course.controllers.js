@@ -5,6 +5,8 @@ import { validationResult } from "express-validator";
 import { Course } from "../models/course.model.js";
 import { YearSemester } from "../models/yearSemester.model.js";
 import mongoose from "mongoose";
+import { Assignment } from "../models/assignment.model.js";
+import { Timetable } from "../models/timetable.model.js";
 
 export const getCourse = asyncHandler(async (req, res) => {
   const { yearSemesterId = null } = req.query;
@@ -218,6 +220,9 @@ export const deleteCourse = asyncHandler(async (req, res) => {
 
   // Delete course
   await Course.findByIdAndDelete(id, { session });
+  // Delete related assignments, timetables, etc. if needed
+  await Assignment.deleteMany({ courseId: id }, { session });
+  await Timetable.deleteMany({ courseId: id }, { session });
 
   // Commit the transaction
   await session.commitTransaction();
@@ -226,5 +231,11 @@ export const deleteCourse = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, null, "Course deleted successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        null,
+        "Course along with related assignments and timetable entries deleted successfully"
+      )
+    );
 });
