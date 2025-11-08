@@ -13,9 +13,8 @@ import { User } from "../models/user.model.js";
 import { sendProgress } from "../server.js";
 
 export const generateTimetable = asyncHandler(async (req, res) => {
-  console.log("\n========== TIMETABLE GENERATION STARTED ==========");
-  console.log("Request body:", JSON.stringify(req.body, null, 2));
-
+  console.log("\n========== GLOBAL TIMETABLE GENERATION STARTED ==========");
+  // Request body validation (if you require any params you can add them—this version acts on all year-semesters)
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     throw new ApiError(
@@ -25,58 +24,48 @@ export const generateTimetable = asyncHandler(async (req, res) => {
     );
   }
 
-  const { yearSemesterId } = req?.body;
-  console.log(`\n[STEP 1] Year Semester ID: ${yearSemesterId}`);
-
   const session = await mongoose.startSession();
   session.startTransaction();
   req.session = session;
 
   try {
-    // ---------- Fetch courses and quick global validation ----------
-    console.log("\n[STEP 2] Fetching courses...");
-    const courses = await Course.find({ yearSemesterId }, {}, { session });
+    // ---------- STEP 1: Fetch global data ----------
     console.log(
-      `Found ${courses.length} courses:`,
-      courses.map((c) => ({
-        name: c.courseName,
-        credits: c.credits,
-        isLab: c.isLab,
-      }))
+      "\n[STEP 1] Fetching global data (courses, classes, assignments, timeslots)..."
     );
-
-    if (!courses || courses.length === 0) {
-      throw new ApiError(404, "No courses found for the given yearSemesterId");
-    }
-
-    const totalCredits = courses.reduce((sum, c) => sum + c.credits, 0);
-    console.log(`Total credits: ${totalCredits}`);
-
-    if (totalCredits > 36) {
-      throw new ApiError(
-        400,
-        "Total credits for the courses in the given yearSemesterId exceeds 36"
-      );
-    }
-
-    // ---------- Fetch classes ----------
-    console.log("\n[STEP 3] Fetching classes...");
-    const classes = await Class.find({ yearSemesterId }, {}, { session });
-    console.log(
-      `Found ${classes.length} classes:`,
-      classes.map((c) => ({
-        id: c._id,
-        section: c.section,
-      }))
-    );
+    const [courses, classes, timeslots] = await Promise.all([
+      Course.find({}, {}, { session }),
+      Class.find({}, {}, { session }),
+      Timeslot.find({}, {}, { session }).sort({ day: 1, period: 1 }),
+    ]);
 
     if (!classes || classes.length === 0) {
-      throw new ApiError(404, "No classes found for the given yearSemesterId");
+      throw new ApiError(404, "No classes found in the system");
+    }
+    if (!courses || courses.length === 0) {
+      throw new ApiError(404, "No courses found in the system");
+    }
+    if (!timeslots || timeslots.length === 0) {
+      throw new ApiError(404, "No timeslots found in the system");
     }
 
-    // ---------- Build enriched assignments ----------
-    console.log("\n[STEP 4] Building enriched assignments...");
-    const aggResults = await Assignment.aggregate([
+    console.log(
+      `Found ${courses.length} courses, ${classes.length} classes, ${timeslots.length} timeslots`
+    );
+
+    // Build timeslot map: timeslotMap[day][period] = timeslotDoc
+    const timeslotMap = {};
+    timeslots.forEach((t) => {
+      if (!timeslotMap[t.day]) timeslotMap[t.day] = {};
+      timeslotMap[t.day][t.period] = t;
+    });
+
+    // ---------- STEP 2: Build enriched assignments (all year-semesters) ----------
+    console.log(
+      "\n[STEP 2] Fetching enriched assignments for all year-semesters..."
+    );
+    // Similar aggregation as before but for all courses; result contains courseDetails, facultyDetails, classDetails
+    const aggAssignments = await Assignment.aggregate([
       {
         $lookup: {
           from: "courses",
@@ -84,8 +73,15 @@ export const generateTimetable = asyncHandler(async (req, res) => {
           foreignField: "_id",
           as: "courseDetails",
           pipeline: [
-            { $match: { yearSemesterId } },
-            { $project: { _id: 1, courseName: 1, credits: 1, isLab: 1 } },
+            {
+              $project: {
+                _id: 1,
+                courseName: 1,
+                credits: 1,
+                isLab: 1,
+                yearSemesterId: 1,
+              },
+            },
           ],
         },
       },
@@ -127,67 +123,51 @@ export const generateTimetable = asyncHandler(async (req, res) => {
       },
     ]).session(session);
 
-    console.log(`Found ${aggResults.length} assignments:`);
-    aggResults.forEach((a, idx) => {
+    if (!aggAssignments || aggAssignments.length === 0) {
+      throw new ApiError(
+        404,
+        "No valid assignments found across year-semesters"
+      );
+    }
+
+    console.log(
+      `Found ${aggAssignments.length} assignments across all year-semesters`
+    );
+    // Optionally log first few assignments for debugging
+    aggAssignments.slice(0, 10).forEach((a, idx) => {
       console.log(
         `  ${idx + 1}. ${a.courseId.courseName} -> ${a.classId.section} (Faculty: ${a.facultyId.name})`
       );
     });
 
-    if (!aggResults || aggResults.length === 0) {
-      throw new ApiError(
-        404,
-        "No valid assignments found for the year-semester"
-      );
-    }
+    const validAssignments = aggAssignments;
 
-    const validAssignments = aggResults;
-
-    // ---------- Extract faculty IDs ----------
+    // ---------- STEP 3: Extract faculties and classes targeted ----------
     const facultyIds = [
       ...new Set(validAssignments.map((a) => a.facultyId._id.toString())),
     ];
+    const targetClassIds = [
+      ...new Set(validAssignments.map((a) => a.classId._id.toString())),
+    ];
+
     console.log(
-      `\n[STEP 5] Unique faculty IDs (${facultyIds.length}):`,
-      facultyIds
+      `\n[STEP 3] Unique faculty IDs: ${facultyIds.length}. Target classes: ${targetClassIds.length}`
     );
 
-    // ---------- Fetch timeslots ----------
-    console.log("\n[STEP 6] Fetching timeslots...");
-    const timeslots = await Timeslot.find({}, {}, { session }).sort({
-      day: 1,
-      period: 1,
-    });
-    console.log(`Found ${timeslots.length} timeslots`);
-
-    const timeslotMap = {};
-    timeslots.forEach((t) => {
-      if (!timeslotMap[t.day]) timeslotMap[t.day] = {};
-      timeslotMap[t.day][t.period] = t;
-    });
-    console.log(
-      "Timeslot map structure:",
-      Object.keys(timeslotMap).map((day) => ({
-        day,
-        periods: Object.keys(timeslotMap[day]),
-      }))
-    );
-
-    // ---------- Reset faculty availability (fresh generation run) ----------
+    // ---------- STEP 4: Faculty availability (global) ----------
+    console.log("\n[STEP 4] Fetching faculty availability (global)...");
+    // NOTE: Do NOT reset isAvailable globally here. Resetting should be a separate explicit step if desired.
     await FacultyAvailability.updateMany(
       { facultyId: { $in: facultyIds } },
       { $set: { isAvailable: true } },
       { session }
     );
 
-    // ---------- Faculty availability ----------
-    console.log("\n[STEP 7] Fetching faculty availability...");
     const availabilityDocs = await FacultyAvailability.find(
       { facultyId: { $in: facultyIds }, isAvailable: true },
       {},
       { session }
     ).populate("timeslotId", "day period");
-    console.log(`Found ${availabilityDocs.length} availability records`);
 
     const availabilityMap = {};
     availabilityDocs.forEach((av) => {
@@ -197,24 +177,24 @@ export const generateTimetable = asyncHandler(async (req, res) => {
         availabilityMap[fid].add(av.timeslotId._id.toString());
       }
     });
-    console.log("Availability map:");
-    Object.entries(availabilityMap).forEach(([fid, slots]) => {
-      const faculty = validAssignments.find(
-        (a) => a.facultyId._id.toString() === fid
-      )?.facultyId;
-      console.log(`  ${faculty?.name || fid}: ${slots.size} available slots`);
-    });
+    console.log(
+      `Availability records (true) found: ${availabilityDocs.length}`
+    );
 
-    // ---------- Existing timetable ----------
-    console.log("\n[STEP 8] Fetching existing timetable...");
+    // ---------- STEP 5: Existing timetable bookings (global, but exclude classes we're going to regenerate) ----------
+    console.log(
+      "\n[STEP 5] Fetching existing timetable entries for involved faculties (excluding target classes)..."
+    );
     const existingTimetable = await Timetable.find(
-      { facultyId: { $in: facultyIds } },
+      {
+        facultyId: { $in: facultyIds },
+        classId: { $nin: targetClassIds }, // don't count bookings for classes we will replace (they will be deleted)
+      },
       {},
       { session }
     ).populate("timeslotId", "day period");
-    console.log(`Found ${existingTimetable.length} existing timetable entries`);
 
-    const facultyTimeslotSets = {};
+    const facultyTimeslotSets = {}; // tracks global booked timeslots for each faculty
     facultyIds.forEach((fid) => (facultyTimeslotSets[fid] = new Set()));
     existingTimetable.forEach((entry) => {
       const fid = entry.facultyId.toString();
@@ -222,38 +202,36 @@ export const generateTimetable = asyncHandler(async (req, res) => {
         facultyTimeslotSets[fid].add(entry.timeslotId._id.toString());
       }
     });
-    console.log("Faculty timeslot sets (existing):");
-    Object.entries(facultyTimeslotSets).forEach(([fid, slots]) => {
-      if (slots.size > 0) {
-        const faculty = validAssignments.find(
-          (a) => a.facultyId._id.toString() === fid
-        )?.facultyId;
-        console.log(`  ${faculty?.name || fid}: ${slots.size} booked slots`);
-      }
-    });
+    console.log(
+      `Existing timetable entries considered (excluded target classes): ${existingTimetable.length}`
+    );
 
-    // ---------- Per-class credit validation ----------
-    console.log("\n[STEP 9] Validating per-class credits...");
+    // ---------- STEP 6: Per-class credits validation (per-class and optionally per-year-semester) ----------
+    console.log(
+      "\n[STEP 6] Validating per-class credits (must not exceed 36)..."
+    );
     const classCredits = {};
-    for (const assignment of validAssignments) {
-      const classId = assignment.classId._id.toString();
-      classCredits[classId] =
-        (classCredits[classId] || 0) + assignment.courseId.credits;
+    for (const a of validAssignments) {
+      const classId = a.classId._id.toString();
+      classCredits[classId] = (classCredits[classId] || 0) + a.courseId.credits;
       if (classCredits[classId] > 36) {
+        const section =
+          classes.find((c) => c._id.toString() === classId)?.section || classId;
         throw new ApiError(
           400,
-          `Class ${assignment.classId.section} exceeds 36 credits (total: ${classCredits[classId]})`
+          `Class ${section} exceeds 36 credits (total: ${classCredits[classId]})`
         );
       }
     }
-    console.log("Class credits:");
-    Object.entries(classCredits).forEach(([cid, credits]) => {
-      const cls = classes.find((c) => c._id.toString() === cid);
-      console.log(`  ${cls?.section || cid}: ${credits} credits`);
-    });
+    console.log("Per-class credits check passed");
 
-    // ---------- Timetable matrix ----------
-    console.log("\n[STEP 10] Initializing timetable matrix...");
+    // Optional: per-year-semester total credits check (if you want similar to earlier per-year validation)
+    // you may compute course sums by course.yearSemesterId if desired
+
+    // ---------- STEP 7: Initialize timetable matrices for each class (global) ----------
+    console.log(
+      "\n[STEP 7] Initializing timetable matrix for each target class..."
+    );
     const days = [
       "monday",
       "tuesday",
@@ -263,20 +241,46 @@ export const generateTimetable = asyncHandler(async (req, res) => {
       "saturday",
     ];
     const periods = [1, 2, 3, 4, 5, 6];
-    const timetableMatrix = {};
+    const timetableMatrix = {}; // timetableMatrix[classId][day][periodIndex]
     classes.forEach((cls) => {
       const cid = cls._id.toString();
+      // Only initialize for classes we care about (i.e., those in assignments)
+      if (!targetClassIds.includes(cid)) return;
       timetableMatrix[cid] = {};
       days.forEach((day) => {
         timetableMatrix[cid][day] = Array(periods.length).fill(null);
       });
     });
+
+    // Track how many times a course appears per day per class
+    const classDayCourseCount = {}; // classDayCourseCount[classId][day][courseId] = count
+
+    classes.forEach((cls) => {
+      const cid = cls._id.toString();
+      if (!targetClassIds.includes(cid)) return;
+      classDayCourseCount[cid] = {};
+      days.forEach((day) => {
+        classDayCourseCount[cid][day] = {};
+      });
+    });
+
+    // Track how many distinct days each course has been scheduled for (to encourage spread)
+    const courseDaySpread = {}; // courseDaySpread[classId][courseId] = Set of days
+
+    classes.forEach((cls) => {
+      const cid = cls._id.toString();
+      if (!targetClassIds.includes(cid)) return;
+      courseDaySpread[cid] = {};
+    });
+
     console.log(
-      `Matrix initialized for ${classes.length} classes × ${days.length} days × ${periods.length} periods`
+      `Initialized matrices for ${Object.keys(timetableMatrix).length} classes`
     );
 
-    // ---------- Course assignments ----------
-    console.log("\n[STEP 11] Initializing course assignments tracker...");
+    // ---------- STEP 8: Prepare courseAssignments tracking ----------
+    console.log(
+      "\n[STEP 8] Preparing course assignment trackers (required vs assigned)..."
+    );
     const courseAssignments = {};
     validAssignments.forEach((a) => {
       const classId = a.classId._id.toString();
@@ -289,18 +293,13 @@ export const generateTimetable = asyncHandler(async (req, res) => {
         meta: {
           classSection: a.classId.section,
           courseName: a.courseId.courseName,
+          yearSemesterId: a.courseId.yearSemesterId,
         },
       };
     });
-    console.log("Course assignments:");
-    Object.entries(courseAssignments).forEach(([key, info]) => {
-      console.log(
-        `  ${info.meta.courseName} (${info.meta.classSection}): ${info.required} slots needed, Lab: ${info.isLab}`
-      );
-    });
 
-    // ---------- Compute possible slots ----------
-    console.log("\n[STEP 12] Computing possible slots per assignment...");
+    // ---------- STEP 9: Compute possible slot counts (global) ----------
+    console.log("\n[STEP 9] Computing possible slot counts (global)...");
     const possibleSlotCounts = {};
     for (const a of validAssignments) {
       const fid = a.facultyId._id.toString();
@@ -327,30 +326,35 @@ export const generateTimetable = asyncHandler(async (req, res) => {
         }
       }
       possibleSlotCounts[key] = count;
-      console.log(
-        `  ${a.courseId.courseName} (${a.classId.section}, ${a.facultyId.name}): ${count} possible slots`
-      );
+      // Optionally log a few examples
     }
+    console.log("Possible-slot counts computed");
 
-    // ---------- Sort assignments ----------
-    console.log("\n[STEP 13] Sorting assignments by difficulty...");
+    // ---------- STEP 10: Sort assignments globally by difficulty ----------
+    console.log(
+      "\n[STEP 10] Sorting assignments globally (labs then least-flexible first)..."
+    );
     validAssignments.sort((a, b) => {
       const aKey = `${a.classId._id.toString()}-${a.courseId._id.toString()}`;
       const bKey = `${b.classId._id.toString()}-${b.courseId._id.toString()}`;
-      const aLab = a.courseId.isLab ? 0 : 1;
+      const aLab = a.courseId.isLab ? 0 : 1; // labs first
       const bLab = b.courseId.isLab ? 0 : 1;
       if (aLab !== bLab) return aLab - bLab;
+      // then less possible slots first
       return possibleSlotCounts[aKey] - possibleSlotCounts[bKey];
     });
-    console.log("Sorted assignment order:");
-    validAssignments.forEach((a, idx) => {
+
+    // Log sorted top-10 for debugging
+    console.log("Sorted assignment order (top 10):");
+    validAssignments.slice(0, 10).forEach((a, idx) => {
       const key = `${a.classId._id.toString()}-${a.courseId._id.toString()}`;
       console.log(
-        `  ${idx + 1}. ${a.courseId.courseName} (${a.classId.section}) - ${possibleSlotCounts[key]} slots, Lab: ${a.courseId.isLab}`
+        `  ${idx + 1}. ${a.courseId.courseName} (${a.classId.section}) - ${possibleSlotCounts[key]} possible slots, Lab: ${a.courseId.isLab}`
       );
     });
 
-    // ---------- Progress helpers ----------
+    // ---------- STEP 11: Scheduler (global backtracking) ----------
+    console.log("\n[STEP 11] Starting global backtracking scheduler...");
     const totalSlots = validAssignments.reduce(
       (sum, a) => sum + a.courseId.credits,
       0
@@ -361,40 +365,59 @@ export const generateTimetable = asyncHandler(async (req, res) => {
       progressEmitCounter++;
       if (progressEmitCounter % 3 === 0 || Math.random() < 0.05) {
         sendProgress(
-          yearSemesterId,
+          "global",
           msg,
           Math.round((slotsAssigned / totalSlots) * 100)
         );
       }
     };
 
-    // ---------- Helper: canPlace ----------
-    const canPlaceAt = (classId, day, period, facultyId) => {
+    // helper: canPlaceAt (now uses global facultyTimeslotSets & availabilityMap & timetableMatrix)
+    const canPlaceAt = (
+      classId,
+      day,
+      period,
+      facultyId,
+      courseId,
+      isLab,
+      requiredSlots
+    ) => {
       const ts = timeslotMap[day] && timeslotMap[day][period];
       if (!ts) return false;
       const tsId = ts._id.toString();
 
+      if (!timetableMatrix[classId]) return false;
       if (timetableMatrix[classId][day][period - 1]) return false;
-      if (
-        facultyTimeslotSets[facultyId] &&
-        facultyTimeslotSets[facultyId].has(tsId)
-      )
-        return false;
-      if (!(availabilityMap[facultyId] && availabilityMap[facultyId].has(tsId)))
-        return false;
+      if (facultyTimeslotSets[facultyId]?.has(tsId)) return false;
+      if (!availabilityMap[facultyId]?.has(tsId)) return false;
+
+      // NEW RULE: non-lab subjects can appear at most 2 times per day
+      if (!isLab) {
+        const countToday = classDayCourseCount[classId][day][courseId] || 0;
+        if (countToday >= 2) return false;
+
+        // Prefer spreading across different days before doubling up
+        const daysUsed = courseDaySpread[classId][courseId]?.size || 0;
+        const maxSpread = Math.min(requiredSlots, days.length);
+        const spreadNotFull = daysUsed < maxSpread;
+
+        // If already placed once today and there are unused days left, skip for now
+        if (countToday > 0 && spreadNotFull) return false;
+      }
 
       return true;
     };
 
-    const usedFacultySlots = new Set(); // Track all slots assigned to faculty
-
-    // ---------- Backtracking search ----------
+    const usedFacultySlots = new Set(); // "facultyId::timeslotId"
     let backtrackCount = 0;
-    const scheduleCourses = (index, depth = 0) => {
-      const indent = "  ".repeat(depth);
 
+    // scheduleAssignments: index over validAssignments
+    const scheduleAssignments = (index, depth = 0) => {
+      const indent = "  ".repeat(depth);
       if (index >= validAssignments.length) {
-        console.log(`${indent}✓ All assignments scheduled successfully!`);
+        console.log(
+          `${indent}✓ All global assignments scheduled successfully!`
+        );
         return [];
       }
 
@@ -406,20 +429,30 @@ export const generateTimetable = asyncHandler(async (req, res) => {
       const requiredSlots = assignment.courseId.credits;
       const key = `${classId}-${courseId}`;
 
-      console.log(
-        `${indent}[Depth ${depth}] Processing assignment ${index + 1}/${validAssignments.length}: ${assignment.courseId.courseName} for ${assignment.classId.section}`
-      );
-      console.log(
-        `${indent}  Required: ${requiredSlots} slots, Already assigned: ${courseAssignments[key].assigned}`
-      );
-
-      if (courseAssignments[key].assigned >= requiredSlots) {
-        console.log(`${indent}  ✓ Already satisfied, skipping...`);
-        return scheduleCourses(index + 1, depth);
+      if (!courseAssignments[key]) {
+        // should not happen, but guard
+        console.log(
+          `${indent}  ✗ Unexpected: courseAssignments missing for ${key}`
+        );
+        return null;
       }
 
+      console.log(
+        `${indent}[Depth ${depth}] Assignment ${index + 1}/${validAssignments.length}: ${assignment.courseId.courseName} for ${assignment.classId.section}`
+      );
+      console.log(
+        `${indent}  Required: ${requiredSlots}, Assigned so far: ${courseAssignments[key].assigned}`
+      );
+
+      // Already satisfied?
+      if (courseAssignments[key].assigned >= requiredSlots) {
+        return scheduleAssignments(index + 1, depth); // move on
+      }
+
+      // Try placements
       for (const day of days) {
         if (isLab) {
+          // place contiguous block of 'requiredSlots' length
           for (
             let startIdx = 0;
             startIdx <= periods.length - requiredSlots;
@@ -427,10 +460,6 @@ export const generateTimetable = asyncHandler(async (req, res) => {
           ) {
             let blockOk = true;
             const candidateTs = [];
-
-            console.log(
-              `${indent}  Trying lab block: ${day}, periods ${periods[startIdx]}-${periods[startIdx + requiredSlots - 1]}`
-            );
 
             for (let offset = 0; offset < requiredSlots; offset++) {
               const period = periods[startIdx + offset];
@@ -441,10 +470,10 @@ export const generateTimetable = asyncHandler(async (req, res) => {
               }
               const tsId = ts._id.toString();
 
-              if (timetableMatrix[classId][day][period - 1]) {
-                console.log(
-                  `${indent}    ✗ Class already has slot at period ${period}`
-                );
+              if (
+                !timetableMatrix[classId] ||
+                timetableMatrix[classId][day][period - 1]
+              ) {
                 blockOk = false;
                 break;
               }
@@ -452,9 +481,6 @@ export const generateTimetable = asyncHandler(async (req, res) => {
                 facultyTimeslotSets[facultyId] &&
                 facultyTimeslotSets[facultyId].has(tsId)
               ) {
-                console.log(
-                  `${indent}    ✗ Faculty already booked at period ${period}`
-                );
                 blockOk = false;
                 break;
               }
@@ -464,9 +490,6 @@ export const generateTimetable = asyncHandler(async (req, res) => {
                   availabilityMap[facultyId].has(tsId)
                 )
               ) {
-                console.log(
-                  `${indent}    ✗ Faculty not available at period ${period}`
-                );
                 blockOk = false;
                 break;
               }
@@ -475,7 +498,7 @@ export const generateTimetable = asyncHandler(async (req, res) => {
 
             if (!blockOk) continue;
 
-            console.log(`${indent}    ✓ Block available, placing...`);
+            // Place the block
             const createdEntries = [];
             for (const ts of candidateTs) {
               timetableMatrix[classId][day][ts.period - 1] = {
@@ -498,19 +521,12 @@ export const generateTimetable = asyncHandler(async (req, res) => {
                 `Assigned ${assignment.courseId.courseName} for ${assignment.classId.section}`
               );
             }
-            console.log(
-              `${indent}    Progress: ${courseAssignments[key].assigned}/${requiredSlots} assigned`
-            );
 
-            const downstream = scheduleCourses(index + 1, depth + 1);
-            if (downstream) {
-              return createdEntries.concat(downstream);
-            }
+            const downstream = scheduleAssignments(index + 1, depth + 1);
+            if (downstream) return createdEntries.concat(downstream);
 
+            // backtrack block
             backtrackCount++;
-            console.log(
-              `${indent}    ✗ Backtracking (count: ${backtrackCount})...`
-            );
             for (const ts of candidateTs) {
               timetableMatrix[classId][day][ts.period - 1] = null;
               facultyTimeslotSets[facultyId].delete(ts._id.toString());
@@ -520,13 +536,22 @@ export const generateTimetable = asyncHandler(async (req, res) => {
           }
         } else {
           for (const period of periods) {
-            if (!canPlaceAt(classId, day, period, facultyId)) {
+            if (
+              !canPlaceAt(
+                classId,
+                day,
+                period,
+                facultyId,
+                courseId,
+                isLab,
+                requiredSlots
+              )
+            ) {
               continue;
             }
 
             const ts = timeslotMap[day][period];
-            console.log(`${indent}  Trying: ${day}, period ${period}`);
-
+            // Place single slot
             timetableMatrix[classId][day][period - 1] = {
               courseId,
               facultyId,
@@ -536,9 +561,12 @@ export const generateTimetable = asyncHandler(async (req, res) => {
             usedFacultySlots.add(`${facultyId}::${ts._id}`);
             courseAssignments[key].assigned++;
             slotsAssigned++;
-            console.log(
-              `${indent}    ✓ Placed. Progress: ${courseAssignments[key].assigned}/${requiredSlots}`
-            );
+            classDayCourseCount[classId][day][courseId] =
+              (classDayCourseCount[classId][day][courseId] || 0) + 1;
+
+            if (!courseDaySpread[classId][courseId])
+              courseDaySpread[classId][courseId] = new Set();
+            courseDaySpread[classId][courseId].add(day);
 
             maybeEmitProgress(
               `Assigned ${assignment.courseId.courseName} for ${assignment.classId.section}`
@@ -556,39 +584,65 @@ export const generateTimetable = asyncHandler(async (req, res) => {
               courseAssignments[key].assigned >= requiredSlots
                 ? index + 1
                 : index;
-            const downstream = scheduleCourses(nextIndex, depth + 1);
+            const downstream = scheduleAssignments(nextIndex, depth + 1);
             if (downstream) {
               return [createdEntry].concat(downstream);
             }
 
+            // backtrack single slot
             backtrackCount++;
-            console.log(
-              `${indent}    ✗ Backtracking (count: ${backtrackCount})...`
-            );
             timetableMatrix[classId][day][period - 1] = null;
             facultyTimeslotSets[facultyId].delete(ts._id.toString());
             courseAssignments[key].assigned--;
             slotsAssigned--;
+            classDayCourseCount[classId][day][courseId]--;
+            if (classDayCourseCount[classId][day][courseId] <= 0) {
+              courseDaySpread[classId][courseId].delete(day);
+            }
           }
         }
       }
 
-      console.log(`${indent}✗ No valid placement found for this assignment`);
+      // no placement found for this assignment
+      console.log(
+        `${indent}✗ No valid placement found for assignment ${assignment.courseId.courseName} (${assignment.classId.section})`
+      );
       return null;
     };
 
-    // ---------- Run scheduler ----------
-    console.log("\n[STEP 14] Starting backtracking scheduler...");
-    sendProgress(yearSemesterId, "Started generating timetable", 0);
-    const timetableEntries = scheduleCourses(0);
-
+    // ---------- STEP 12: Run scheduler ----------
+    sendProgress("global", "Started generating timetable (global)", 0);
+    const timetableEntries = scheduleAssignments(0);
     console.log(`\nScheduler completed. Total backtracks: ${backtrackCount}`);
 
     if (!timetableEntries || timetableEntries.length === 0) {
-      console.log("\n✗ SCHEDULING FAILED - Generating diagnostics...");
-
+      console.log("\n✗ SCHEDULING FAILED - producing diagnostics...");
+      // produce suggestions
       const suggestions = [];
 
+      // per-class credits (already validated)
+      // faculty load vs availability
+      const facultyLoad = {};
+      validAssignments.forEach((a) => {
+        const fid = a.facultyId._id.toString();
+        facultyLoad[fid] = (facultyLoad[fid] || 0) + a.courseId.credits;
+      });
+      const availableSlots = {};
+      Object.entries(availabilityMap).forEach(([fid, set]) => {
+        availableSlots[fid] = set.size;
+      });
+      Object.entries(facultyLoad).forEach(([fid, need]) => {
+        if ((availableSlots[fid] || 0) < need) {
+          const fac = validAssignments.find(
+            (v) => v.facultyId._id.toString() === fid
+          )?.facultyId;
+          suggestions.push(
+            `Increase availability for faculty ${fac?.name || fid} (needs ${need}, available ${availableSlots[fid] || 0})`
+          );
+        }
+      });
+
+      // fallback: suggest reducing courses for overloaded classes
       const classCreditMap = {};
       validAssignments.forEach((a) => {
         const classId = a.classId._id.toString();
@@ -606,77 +660,70 @@ export const generateTimetable = asyncHandler(async (req, res) => {
         }
       });
 
-      const facultyLoad = {};
-      validAssignments.forEach((a) => {
-        const facultyId = a.facultyId._id.toString();
-        facultyLoad[facultyId] =
-          (facultyLoad[facultyId] || 0) + a.courseId.credits;
-      });
-      const availableSlots = {};
-      Object.entries(availabilityMap).forEach(([fid, set]) => {
-        availableSlots[fid] = set.size;
-      });
-      Object.entries(facultyLoad).forEach(([fid, need]) => {
-        if ((availableSlots[fid] || 0) < need) {
-          const fac = validAssignments.find(
-            (v) => v.facultyId._id.toString() === fid
-          )?.facultyId;
-          suggestions.push(
-            `Increase availability for faculty ${fac?.name || fid}`
-          );
-        }
-      });
-
-      console.log("Suggestions:", suggestions);
-      sendProgress(yearSemesterId, "Timetable generation failed", 0);
+      sendProgress("global", "Timetable generation failed", 0);
       throw new ApiError(
         400,
-        "Failed to generate timetable due to conflicts",
+        "Failed to generate global timetable due to conflicts",
         suggestions
       );
     }
 
     console.log(
-      `\n✓ SUCCESS - Generated ${timetableEntries.length} timetable entries`
+      `\n✓ SUCCESS - Generated ${timetableEntries.length} timetable entries (global)`
     );
 
-    // ---------- Persist results ----------
-    console.log("\n[STEP 15] Persisting timetable to database...");
+    // ---------- STEP 13: Persist results ----------
+    console.log("\n[STEP 13] Persisting timetable results (in transaction)...");
+    // Delete timetables for classes we are regenerating
     await Timetable.deleteMany(
-      { classId: { $in: classes.map((c) => c._id) } },
+      { classId: { $in: targetClassIds } },
       { session }
     );
+    // Insert all created timetable entries
     await Timetable.insertMany(timetableEntries, { session });
-    console.log("✓ Timetable saved successfully");
+    console.log("✓ Timetable entries saved");
 
-    // ---------- Update faculty availability ----------
+    // ---------- STEP 14: Update faculty availability records for used slots ----------
+    console.log("\n[STEP 14] Updating faculty availability for used slots...");
     const updates = Array.from(usedFacultySlots).map((pair) => {
-      console.log(pair);
       const [facultyId, timeslotId] = pair.split("::");
       return {
         updateOne: {
           filter: { facultyId, timeslotId },
           update: { $set: { isAvailable: false } },
+          upsert: false, // assume availability docs exist; if not, you may wish to upsert
         },
       };
     });
 
     if (updates.length > 0) {
+      // bulkWrite may throw if many updates; handle gracefully
       const result = await FacultyAvailability.bulkWrite(updates, { session });
-      console.log("result", result);
-      console.log(`✓ Updated ${updates.length} faculty availability records`);
+      console.log(
+        "FacultyAvailability bulkWrite result:",
+        result.result || result
+      );
+      console.log(
+        `✓ Updated ${updates.length} faculty availability records (set to false)`
+      );
+    } else {
+      console.log("No faculty availability updates required");
     }
 
+    // commit
     await session.commitTransaction();
-    sendProgress(yearSemesterId, "Timetable generated successfully", 100);
-
-    console.log("\n========== TIMETABLE GENERATION COMPLETED ==========\n");
+    sendProgress("global", "Timetable generated successfully (global)", 100);
+    console.log(
+      "\n========== GLOBAL TIMETABLE GENERATION COMPLETED ==========\n"
+    );
 
     return res
       .status(202)
-      .json(new ApiResponse(202, null, "Timetable generated successfully"));
+      .json(
+        new ApiResponse(202, null, "Global timetable generated successfully")
+      );
   } catch (error) {
-    console.error("\n✗ ERROR OCCURRED:", error.message);
+    console.error("\n✗ ERROR OCCURRED (global scheduler):", error.message);
     console.error("Stack:", error.stack);
     await session.abortTransaction();
     if (error instanceof ApiError) throw error;
@@ -686,6 +733,62 @@ export const generateTimetable = asyncHandler(async (req, res) => {
       error.errors || []
     );
   } finally {
+    req.session = null;
     await session.endSession();
   }
+});
+
+export const getTimeTable = asyncHandler(async (req, res) => {
+  const { yearSemesterId } = req.params;
+
+  const classes = await Class.find({ yearSemesterId });
+  if (!classes || classes.length === 0) {
+    throw new ApiError(404, "No classes found for the given yearSemesterId");
+  }
+  const classIds = classes.map((c) => c._id);
+
+  const timetableEntries = await Timetable.find({ classId: { $in: classIds } })
+    .populate("classId", "section")
+    .populate("courseId", "courseName credits isLab")
+    .populate("facultyId", "name")
+    .populate("timeslotId", "day period");
+
+  // ---------- Transform timetableEntries into per-class matrix ----------
+  const days = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const periods = [1, 2, 3, 4, 5, 6];
+
+  // Initialize structure like: { A1: [ [null,null,...], [null,null,...], ... ] }
+  const classMatrices = {};
+
+  for (const entry of timetableEntries) {
+    const section = entry.classId.section;
+    if (!classMatrices[section]) {
+      classMatrices[section] = Array.from({ length: periods.length }, () =>
+        Array(days.length).fill(null)
+      );
+    }
+
+    const dayIndex = days.indexOf(entry.timeslotId.day);
+    const periodIndex = entry.timeslotId.period - 1;
+
+    classMatrices[section][periodIndex][dayIndex] = {
+      courseName: entry.courseId.courseName,
+      facultyName: entry.facultyId.name,
+      room: entry.room,
+      isLab: entry.courseId.isLab,
+    };
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, classMatrices, "Timetable fetched successfully")
+    );
 });
